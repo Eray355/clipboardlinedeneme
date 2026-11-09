@@ -59,7 +59,7 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
  const context={window:{clipboardLine:api,addEventListener(name,listener){if(!listeners.has('window:'+name))listeners.set('window:'+name,[]);listeners.get('window:'+name).push(listener);}},document,HTMLElement:Element,HTMLTextAreaElement:TextArea,Image:FixtureImage,console,structuredClone,URL,Set,Date,JSON,Math,Number,String,requestAnimationFrame:fn=>queuedAnimationFrames?animationFrames.push(fn):fn(),setTimeout:fn=>{queueMicrotask(fn);return 1;},clearTimeout(){}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../locales.js'),'utf8'),context,{filename:'locales.js'});vm.runInContext(fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),context,{filename:'renderer.js'});
  async function ready(){await new Promise(setImmediate);}
- async function key(code,{ctrl=false,alt=false,shift=false,key,target,composing=false,keyCode=0}={}){const event={code,key:key||(/^Key/.test(code)?code.slice(3).toLowerCase():code==='Space'?' ':code),ctrlKey:ctrl,metaKey:false,altKey:alt,shiftKey:shift,repeat:false,isComposing:composing,keyCode,target:target||new Element(),preventDefault(){this.prevented=true;}};for(const listener of listeners.get('keydown')||[])await listener(event);await ready();return event;}
+ async function key(code,{ctrl=false,alt=false,shift=false,key,target,composing=false,keyCode=0,altGraph=false,location=0,type='keydown'}={}){const event={getModifierState:name=>({Control:ctrl,Alt:alt,Shift:shift,AltGraph:altGraph})[name]===true,location,code,key:key||(/^Key/.test(code)?code.slice(3).toLowerCase():code==='Space'?' ':code),ctrlKey:ctrl,metaKey:false,altKey:alt,shiftKey:shift,repeat:false,isComposing:composing,keyCode,target:target||new Element(),preventDefault(){this.prevented=true;}};for(const listener of listeners.get(type)||[])await listener(event);await ready();return event;}
  async function click(action,extra={}){const target=new Element();target.dataset.action=action;Object.assign(target.dataset,extra);target.closest=selector=>selector==='[data-action]'?target:null;for(const listener of listeners.get('click')||[])listener({target,stopPropagation(){}});await ready();}
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
@@ -810,3 +810,26 @@ test('shelf markup does not consume M in native editors or open text and link it
  await f.key('Escape');await f.key('Escape');f.api.emit({settings:{...f.state.settings,localShortcuts:{markup:''}}});await f.ready();
  await f.key('KeyM');await f.key('KeyX');assert.equal(f.overlay,'');
  });
+
+test('shortcut diagnostics send only recorder events when enabled, including keyup and AltGraph',async()=>{
+ const f=fixture(),events=[];f.api.shortcutDiagnostic=value=>events.push(value);await f.ready();
+ await f.api.command('settings');await f.ready();await f.click('record-local',{keyAction:'pin'});
+ await f.key('KeyA',{ctrl:true,alt:true});assert.equal(events.length,0);
+ f.api.emit({shortcutDiagnosticsEnabled:true});await f.ready();
+ await f.key('ControlLeft',{key:'Control',ctrl:true,location:1});
+ await f.key('AltLeft',{key:'Alt',ctrl:true,alt:true,location:1});
+ await f.key('KeyA',{key:'private character',altGraph:true});
+ assert.match(f.overlay,/>A<\/div>/,'diagnostics must not change the recorded shortcut');
+ await f.key('AltLeft',{key:'Alt',type:'keyup',ctrl:true,location:1});
+ assert.equal(events.length,4);assert.equal(events[2].altGraph,true);assert.equal(events[2].modifierState.altGraph,true);assert.equal(events[3].type,'keyUp');
+ assert.equal(JSON.stringify(events).includes('private character'),false);
+ await f.key('Escape');const count=events.length;await f.key('KeyZ',{key:'outside text'});assert.equal(events.length,count);
+});
+
+test('failed diagnostic transport cannot change shortcut recording',async()=>{
+ const f=fixture();await f.ready();f.api.emit({shortcutDiagnosticsEnabled:true});await f.ready();
+ f.api.shortcutDiagnostic=()=>{throw new Error('synthetic transport failure');};
+ await f.api.command('settings');await f.ready();await f.click('record-local',{keyAction:'pin'});
+ await f.key('KeyA',{ctrl:true,alt:true});assert.match(f.overlay,/>Ctrl\+Alt\+A<\/div>/);
+ await f.key('Escape');assert.equal(f.overlay,'');
+});
