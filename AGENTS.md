@@ -1,36 +1,75 @@
-# ClipBoardLine public source
+# Personal ClipBoardLine edition
 
-This repository contains the audited source and releases for one ClipBoardLine
-product on macOS and Windows. Keep all user-visible features and behavior aligned
-by default. A feature request applies to both platforms unless an explicit,
-reviewed OS-native exception documents its user impact and reason. Native API
-and modifier-name differences do not justify silently omitting a feature.
+## Project goals
 
-The user authorizes direct delivery for this project's current and future work.
-After completing requested changes and required checks, commit and push directly
-to `main`. Integrate any implementation branch into `main` before pushing. Do
-not open a pull request unless the user explicitly requests one. Keep all native
-release gates and source/security audits; never import private development history.
+- This fork is a personal edition. Windows 11 x64 is the primary target.
+- Focus on Windows reliability, security, performance, and native integration.
+- Do not modify macOS code unless explicitly requested. Upstream cross-platform
+  parity documentation remains useful reference, not a requirement to change both
+  platforms for a Windows-only task.
+- Keep the personal edition isolated from the original application. Changes to
+  application, installer, storage, or update identities require an explicit task;
+  do not silently reuse or replace production identities, feeds, or trust keys.
 
-Read `docs/cross-platform-parity.md`. Extend `contracts/shelf-behavior.json` and
-both actual application adapters for user-visible changes. Run the Mac XCTest
-and Windows renderer/runtime acceptance suites, the parity checker tests,
-`python3 scripts/check-release-version.py --require-windows`, publication audit
-and secret scan. Publication requires successful exact-source Mac and Windows
-CI evidence; a Windows renderer test executed on macOS is not native Windows
-acceptance. No source-text or implementation-mirroring checks as behavioral proof.
+## Coding rules
 
-Use the single existing repository for source and both platforms' releases.
-Its canonical name is `orkunisitmak/clipboardline`, repository ID 1425566096.
-The old `clipboardline-desktop` and `clipboardline-app` names are reserved
-compatibility redirects. Existing Mac feed URLs and Windows signed repository/URL
-wire identities deliberately keep `clipboardline-desktop`; changing them would
-break shipped Windows clients. The rename does not change internal package names,
-bundle/storage identity or existing release assets. See
-`docs/repository-rename-2026-10-27.md`.
-Keep the shared product version aligned and platform build counters independent.
-Preserve the Mac bundle/storage identity and compatibility paths. Both signed
-update feeds and packages must remain available in every Latest release; do not
-publish a platform-only Latest. Public/community builds contain no private
-release identity, client credentials or signing keys. Never commit private
-history, real clipboard content, preferences, validation artifacts or backups.
+- Only make requested changes. Do not add unrelated refactors or extra features.
+- Match the existing code style and architecture. Prefer small, focused,
+  reviewable changes without unnecessary comments, abstractions, or dependencies.
+- Add error handling when required for correctness, security, or data integrity.
+- Ask before coding when requirements are materially unclear or risky.
+
+## Safety and privacy
+
+- Never delete, reset, or migrate real user data without explicit approval.
+- Preserve clipboard history, settings, and backups, including on failed writes,
+  interrupted operations, updates, and recovery.
+- Never weaken security checks to make tests pass. Preserve renderer isolation,
+  IPC validation, filesystem protections, network destination checks, signatures,
+  artifact checksums, and update verification.
+- Never commit credentials, clipboard contents, private user files, signing
+  material, local preferences, databases, backups, or generated validation data.
+- Use synthetic test content and isolated temporary profiles. Do not change an
+  installed application or its data as part of ordinary development or tests.
+- Do not introduce external data transmission without explicit approval.
+
+## Git workflow
+
+- Use separate branches for individual fixes. Commit only reviewed, relevant
+  changes; inspect staged paths and the diff before committing.
+- Never automatically merge into main or push to main. Push another branch only
+  when explicitly requested, after verifying the destination is the personal fork.
+- Never publish releases without explicit approval. A passing check does not
+  authorize packaging, distribution, release publication, or installation.
+- Do not force-push, reset, or overwrite existing work. Preserve the
+  fix/windows-library-byte-limit branch and commit
+  fbdc1479075d0dbe9ccea58b0b44128a2444737c.
+- Treat Eray355/clipboardlinedeneme as this fork's expected GitHub destination;
+  verify actual fetch and push remotes before any push. Upstream
+  orkunisitmak/clipboardline is reference source, not an authorized push target.
+
+## Verification
+
+- Never claim something works unless it was actually tested. Distinguish source
+  inspection, synthetic/model tests, renderer tests, and native Windows acceptance.
+- Distinguish Linux results from native Windows results. Report passed, failed,
+  and skipped tests, and clearly state what remains unverified.
+- Run meaningful existing tests for affected Windows behavior and add focused
+  regression tests for correctness, security, or data integrity fixes.
+- Preserve useful parity checker tests and shared version validation where
+  relevant, including python3 scripts/check-release-version.py --require-windows.
+  Do not imply these checks certify native macOS or Windows behavior.
+- Preserve publication/source audits and secret scans. Run them before sharing
+  changes. Do not substitute source-text checks for behavioral evidence.
+- Do not automatically run npm audit fix or upgrade dependencies without approval.
+- Retain native acceptance and security gates for any explicitly authorized future
+  release. An actual Windows 11 x64 runner is required for native acceptance;
+  Linux results cannot replace it. macOS work and validation require an explicit
+  request and an appropriate macOS host.
+
+## Reporting
+
+- Explain changed files and the purpose of each change.
+- Report test results, remaining risks, and behavior needing real Windows 11 tests.
+- Report the branch, commit when applicable, and whether changes are local or
+  pushed to GitHub. Do not claim a release was published without evidence.
