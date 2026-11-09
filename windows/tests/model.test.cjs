@@ -59,9 +59,10 @@ test('a capture or import of a note\'s text never merges or removes notes, also 
  const reopened=new Store(dir,{clock:()=>4000});assert.ok([a,b,c].every(note=>reopened.data.items.find(i=>i.id===note.id)?.createdAsNote===true));
  reopened.insert('text','New note');assert.equal(reopened.data.items.filter(i=>i.createdAsNote&&!i.trashedAt).length,3);
 }));
-test('a note keeps its marker on disk even when creation stops after the first write',()=>fixture((s,_time,dir)=>{
- s.modify=()=>{throw new Error('stopped');};assert.throws(()=>s.createNote({title:'Agenda'}),/stopped/);
- const note=new Store(dir).data.items.find(i=>i.text==='New note');assert.equal(note?.createdAsNote,true);
+test('a note is fully retained and titled in its single durable write',()=>fixture((s,_time,dir)=>{
+ const persist=s.persist.bind(s);let writes=0;s.persist=()=>{writes++;persist();};
+ s.createNote({title:'Agenda'});assert.equal(writes,1);
+ const note=new Store(dir).data.items.find(i=>i.text==='New note');assert.equal(note?.createdAsNote,true);assert.equal(note.name,'Agenda');assert.ok(Number.isFinite(note.retainedAt));
 }));
 test('explicit Trash invalidates removal undo and deletion requires Trash',()=>fixture(s=>{const item=s.insert('text','text');assert.throws(()=>s.modify('delete',{ids:[item.id]}));s.modify('remove',{ids:[item.id]});s.modify('restore',{ids:[item.id]});assert.equal(s.undoStack.length,0);s.modify('trash',{ids:[item.id]});s.modify('delete',{ids:[item.id]});assert.equal(s.data.items.length,0);}));
 test('batch operations are atomic when one content kind is invalid',()=>fixture(s=>{const text=s.insert('text','before'),image=s.insert('image',png);assert.throws(()=>s.modify('editText',{ids:[text.id,image.id],text:'after'}));assert.equal(s.item(text.id).text,'before');}));

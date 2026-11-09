@@ -6,6 +6,7 @@ const {execFileSync}=require('node:child_process');
 const {windowsEnvironment}=require('./windows-environment.cjs');
 const {textIdentity}=require('./text-identity.cjs');
 const {metadata:recordingMetadata,MAXIMUM_VIDEO_BYTES}=require('./media.cjs');
+const MAX_LIBRARY_BYTES=64*1024*1024;
 const MANAGED_MEDIA=/^[a-f0-9]{64}\.(png|mp4|mov)$/;
 
 const KINDS = ['image', 'text', 'link'];
@@ -136,7 +137,7 @@ class Store {
     this.data = {schema: 1, items: [], folders: [], settings: clone(DEFAULTS)};
     if (fs.existsSync(this.file)) {
       if(fs.lstatSync(this.file).isSymbolicLink())fail('Library must not be a symlink.');
-      if (fs.statSync(this.file).size > 64 * 1024 * 1024) fail('Library exceeds safe load size');
+      if (fs.statSync(this.file).size > MAX_LIBRARY_BYTES) fail('Library exceeds safe load size');
       let parsed;
       try { parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { fail('Library is unreadable. Original data was preserved; recover library.json.backup.'); }
       if (parsed.schema !== 1 || !Array.isArray(parsed.items) || parsed.items.length > 20000 || !Array.isArray(parsed.folders)) fail('Unsupported library format');
@@ -144,6 +145,7 @@ class Store {
       for (const item of this.data.items) this.validateStored(item);
       if(this.data.pendingDeletionFiles&&(!Array.isArray(this.data.pendingDeletionFiles)||this.data.pendingDeletionFiles.length>200000||this.data.pendingDeletionFiles.some(name=>typeof name!=='string'||!MANAGED_MEDIA.test(name))))fail('Invalid pending deletion state.');
     }
+    this.initialData = fs.existsSync(this.file) ? null : clone(this.data);
     this.pruneRecentFolders();
     this.privacyWarning='';
     if(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)try{this.finishPermanentDeletion();}catch(error){this.privacyWarning=error.message;}
@@ -169,10 +171,23 @@ class Store {
   }
   persist() {
     for(const destination of [this.file,this.file+'.backup'])if(fs.existsSync(destination)&&fs.lstatSync(destination).isSymbolicLink())fail('Library files must not be symlinks.');
+    const serialized=JSON.stringify(this.data);
+    if(Buffer.byteLength(serialized,'utf8')>MAX_LIBRARY_BYTES){
+      // Some callers (including OCR) mutate live records before saving. Restore
+      // the last durable state before rejecting, without touching either file.
+      const before=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):clone(this.initialData);
+      // Legacy files can contain repeated IDs. Match each live object at most
+      // once so rollback cannot alias two saved records and lose their contents.
+      const liveByID=new Map();
+      for(const item of this.data.items){if(!liveByID.has(item.id))liveByID.set(item.id,[]);liveByID.get(item.id).push(item);}
+      for(const matches of liveByID.values())matches.reverse();
+      this.rollback(before,before.items.map(item=>liveByID.get(item.id)?.pop()));
+      fail('Library exceeds safe save size (64 MiB). Existing data was preserved.');
+    }
     const temporary = this.file + '.tmp-' + crypto.randomUUID();
     let descriptor;
     try {
-      descriptor = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(descriptor, JSON.stringify(this.data)); fs.fsyncSync(descriptor); fs.closeSync(descriptor); descriptor = null;
+      descriptor = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(descriptor, serialized); fs.fsyncSync(descriptor); fs.closeSync(descriptor); descriptor = null;
       if (fs.existsSync(this.file)) fs.copyFileSync(this.file, this.file + '.backup');
       fs.renameSync(temporary, this.file);this.revision++;
     } finally { if (descriptor != null) fs.closeSync(descriptor); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
@@ -184,7 +199,7 @@ class Store {
     const referenced=this.mediaReferences(),backup=this.file+'.backup';let backupStat;
     try{backupStat=fs.lstatSync(backup);}catch(error){if(error.code!=='ENOENT')return null;}
     if(backupStat){
-      if(!backupStat.isFile()||backupStat.size>64*1024*1024)return null;
+      if(!backupStat.isFile()||backupStat.size>MAX_LIBRARY_BYTES)return null;
       let previous;try{previous=JSON.parse(fs.readFileSync(backup,'utf8'));}catch{return null;}
       if(previous?.schema!==1||!Array.isArray(previous.items)||previous.items.length>20000)return null;
       for(const item of previous.items){
@@ -344,7 +359,7 @@ class Store {
     item.updatedAt = now; item.hiddenFromShelf = false;item.captureRevision=crypto.randomUUID();
     if(kind==='text')item.text=textValue;
     if (extra.title) item.title = text(extra.title, 500, true);
-    if (extra.createdAsNote) item.createdAsNote = true; // part of the first write, so a stop before retain cannot leave an unmarked note
+    if (extra.createdAsNote) {item.createdAsNote = true;item.retainedAt=now;item.name=extra.name||'';} // Persist note identity, retention and title together.
     if (matching.length > 1) {
       item.pinned ||= matching.some(i => i.pinned);
       item.folderIds = [...new Set(matching.flatMap(i => i.folderIds))]; item.tags = [...new Set(matching.flatMap(i => i.tags))];
@@ -357,10 +372,8 @@ class Store {
   }
   /** A new, retained note record, like macOS createNote. It never reuses a matching capture. */
   createNote({text: value = '', title = ''} = {}) {
-    const item = this.insert('text', value || 'New note', {fresh: true, createdAsNote: true});
-    if (title) this.modify('details', {id: item.id, name: title});
-    this.modify('retain', {ids: [item.id]});
-    return item;
+    const name=sizedText(title,true).trim();
+    return this.insert('text', value || 'New note', {fresh: true, createdAsNote: true, name});
   }
   textIdentity(item) {
     if(typeof item.text!=='string')return null;
